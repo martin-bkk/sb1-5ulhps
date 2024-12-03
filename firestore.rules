@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return request.auth.token.email_verified;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Profile rules
+    match /profiles/{profileId} {
+      // Anyone can read public profile data
+      allow read: if true;
+      
+      // Only authenticated users can create profiles
+      allow create: if isAuthenticated() 
+        && isEmailVerified()
+        && request.resource.data.userId == request.auth.uid;
+      
+      // Only profile owners can update their profiles
+      allow update: if isAuthenticated() 
+        && isEmailVerified()
+        && resource.data.userId == request.auth.uid;
+      
+      // Only profile owners can delete their profiles
+      allow delete: if isAuthenticated() 
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // User settings/private data
+    match /users/{userId} {
+      // Only the user can read their private data
+      allow read: if isAuthenticated() && isOwner(userId);
+      
+      // Only the user can create their private data
+      allow create: if isAuthenticated() 
+        && isEmailVerified() 
+        && isOwner(userId);
+      
+      // Only the user can update their private data
+      allow update: if isAuthenticated() 
+        && isEmailVerified() 
+        && isOwner(userId);
+      
+      // Only the user can delete their private data
+      allow delete: if isAuthenticated() && isOwner(userId);
+    }
+
+    // Subscription rules
+    match /subscriptions/{subscriptionId} {
+      // Users can read their own subscriptions
+      allow read: if isAuthenticated() 
+        && (resource.data.userId == request.auth.uid 
+            || resource.data.creatorId == request.auth.uid);
+      
+      // Only authenticated users can create subscriptions
+      allow create: if isAuthenticated() 
+        && isEmailVerified()
+        && request.resource.data.userId == request.auth.uid;
+      
+      // Only subscription owners can update
+      allow update: if isAuthenticated() 
+        && isEmailVerified()
+        && resource.data.userId == request.auth.uid;
+      
+      // Only subscription owners can delete
+      allow delete: if isAuthenticated() 
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // Content rules
+    match /content/{contentId} {
+      // Public content is readable by anyone
+      allow read: if resource.data.isPublic == true;
+      
+      // Private content is only readable by subscribers
+      allow read: if isAuthenticated() 
+        && (
+          resource.data.creatorId == request.auth.uid
+          || exists(/databases/$(database)/documents/subscriptions/$(request.auth.uid + '_' + resource.data.creatorId))
+        );
+      
+      // Only content creators can create/update/delete content
+      allow create, update, delete: if isAuthenticated() 
+        && isEmailVerified()
+        && request.resource.data.creatorId == request.auth.uid;
+    }
+
+    // Chat messages rules
+    match /messages/{messageId} {
+      // Users can read messages in chats they're part of
+      allow read: if isAuthenticated() 
+        && (resource.data.senderId == request.auth.uid 
+            || resource.data.receiverId == request.auth.uid);
+      
+      // Authenticated users can send messages
+      allow create: if isAuthenticated() 
+        && isEmailVerified()
+        && request.resource.data.senderId == request.auth.uid;
+      
+      // Users can only delete their own messages
+      allow delete: if isAuthenticated() 
+        && resource.data.senderId == request.auth.uid;
+      
+      // No updates to messages (immutable)
+      allow update: if false;
+    }
+  }
+}

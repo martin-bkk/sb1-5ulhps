@@ -1,0 +1,44 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return request.auth.token.email_verified;
+    }
+    
+    function isImageFile() {
+      return request.resource.contentType.matches('image/.*');
+    }
+    
+    function isValidFileSize() {
+      return request.resource.size <= 5 * 1024 * 1024; // 5MB max
+    }
+
+    // Profile photos rules
+    match /profile-photos/{userId} {
+      // Allow read access to profile photos
+      allow read: if true;
+      
+      // Allow upload only if:
+      // 1. User is authenticated
+      // 2. Email is verified
+      // 3. User is uploading their own photo
+      // 4. File is an image
+      // 5. File size is within limits
+      allow write: if isAuthenticated()
+        && isEmailVerified()
+        && request.auth.uid == userId
+        && isImageFile()
+        && isValidFileSize();
+    }
+
+    // Default deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
